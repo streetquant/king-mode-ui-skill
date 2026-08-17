@@ -22,7 +22,7 @@ jobs:
         run: |
           set -euo pipefail
           mkdir -p dmf-v23-rust-validation/work
-          tar -xzf dmf-v23-rust-validation/src.tgz -C dmf-v23-rust-validation/work
+          cat dmf-v23-rust-validation/src.tgz.b64.part-* | base64 -d | tar -xzf - -C dmf-v23-rust-validation/work
       - name: Install pinned Rust toolchain
         shell: bash
         run: |
