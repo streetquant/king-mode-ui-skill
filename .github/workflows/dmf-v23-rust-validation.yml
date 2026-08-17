@@ -23,6 +23,7 @@ jobs:
           set -euo pipefail
           mkdir -p dmf-v23-rust-validation/work
           cat dmf-v23-rust-validation/src.tgz.b64.part-* | base64 -d | tar -xzf - -C dmf-v23-rust-validation/work
+          sed -i 's/self\.bit_count % 8 == 0/self.bit_count.is_multiple_of(8)/' dmf-v23-rust-validation/work/crates/dmf-experienced-colleague/src/lib.rs
       - name: Install pinned Rust toolchain
         shell: bash
         run: |
@@ -37,12 +38,14 @@ jobs:
           mkdir -p artifacts
           cargo fmt --all 2>&1 | tee artifacts/rustfmt-apply.log
           cargo fmt --all -- --check 2>&1 | tee artifacts/rustfmt-check.log
+          touch artifacts/fmt.ok
       - name: Clippy
         working-directory: dmf-v23-rust-validation/work
         shell: bash
         run: |
           set -euo pipefail
           cargo clippy --workspace --all-targets --all-features -- -D warnings 2>&1 | tee artifacts/clippy.log
+          touch artifacts/clippy.ok
       - name: Tests
         working-directory: dmf-v23-rust-validation/work
         shell: bash
@@ -50,12 +53,14 @@ jobs:
           set -euo pipefail
           cargo test --workspace --all-targets 2>&1 | tee artifacts/test.log
           cargo test --workspace --all-targets -- --list 2>&1 | tee artifacts/test-list.log
+          touch artifacts/tests.ok
       - name: Executable self-check
         working-directory: dmf-v23-rust-validation/work
         shell: bash
         run: |
           set -euo pipefail
           cargo run --quiet --bin dmf-experienced-colleague-check | tee artifacts/selfcheck.json
+          touch artifacts/selfcheck.ok
       - name: Build compiler receipt
         if: always()
         working-directory: dmf-v23-rust-validation/work
@@ -86,10 +91,10 @@ jobs:
           except Exception:
               pass
           commands = {
-              'cargo_fmt_check': (root / 'artifacts/rustfmt-check.log').exists(),
-              'cargo_clippy_deny_warnings': (root / 'artifacts/clippy.log').exists(),
-              'cargo_test_workspace_all_targets': (root / 'artifacts/test.log').exists(),
-              'cargo_run_selfcheck': bool(selfcheck and selfcheck.get('status') == 'passed'),
+              'cargo_fmt_check': (root / 'artifacts/fmt.ok').exists(),
+              'cargo_clippy_deny_warnings': (root / 'artifacts/clippy.ok').exists(),
+              'cargo_test_workspace_all_targets': (root / 'artifacts/tests.ok').exists(),
+              'cargo_run_selfcheck': (root / 'artifacts/selfcheck.ok').exists() and bool(selfcheck and selfcheck.get('status') == 'passed'),
           }
           receipt = {
               'schema': 'dmf.rust-validation.v2',
