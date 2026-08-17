@@ -1,0 +1,47 @@
+name: Fetch arXiv 2608.11242
+
+on:
+  pull_request:
+    branches:
+      - main
+
+permissions:
+  contents: read
+
+jobs:
+  fetch:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v4
+      - name: Fetch paper and metadata
+        shell: bash
+        run: |
+          set -euo pipefail
+          mkdir -p artifact
+          ua='Mozilla/5.0 (compatible; research-paper-fetch/1.0; +https://github.com/)'
+          curl -fL --retry 5 --retry-all-errors -A "$ua" \
+            'https://arxiv.org/pdf/2608.11242' \
+            -o artifact/2608.11242.pdf
+          file artifact/2608.11242.pdf | tee artifact/file-type.txt
+          test "$(head -c 4 artifact/2608.11242.pdf)" = '%PDF'
+          curl -fL --retry 5 --retry-all-errors -A "$ua" \
+            'https://export.arxiv.org/api/query?id_list=2608.11242' \
+            -o artifact/2608.11242.atom.xml
+          curl -fL --retry 5 --retry-all-errors -A "$ua" \
+            'https://arxiv.org/abs/2608.11242' \
+            -o artifact/2608.11242.abs.html
+          curl -fL --retry 5 --retry-all-errors -A "$ua" \
+            'https://arxiv.org/html/2608.11242' \
+            -o artifact/2608.11242.full.html || true
+          curl -fL --retry 5 --retry-all-errors -A "$ua" \
+            'https://export.arxiv.org/e-print/2608.11242' \
+            -o artifact/2608.11242.source || true
+          sha256sum artifact/* | sort > artifact/SHA256SUMS
+          wc -c artifact/* | sort -n > artifact/SIZES.txt
+      - name: Upload paper artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: arxiv-2608-11242
+          path: artifact/
+          if-no-files-found: error
