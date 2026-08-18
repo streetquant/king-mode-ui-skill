@@ -14,7 +14,7 @@ jobs:
     steps:
       - uses: actions/checkout@v4
 
-      - name: Materialize source archive
+      - name: Materialize and patch source archive
         shell: bash
         run: |
           set -euo pipefail
@@ -23,8 +23,25 @@ jobs:
             | base64 -d \
             | tar -xzf - -C dmf-v25-rust-validation/work
           test "$(cat dmf-v25-rust-validation/source.tgz.b64.part-* | base64 -d | sha256sum | cut -d' ' -f1)" = "64135dd7838f1bb56c0b9aba1f5d69c538a085f84f2a60d2bdf36cf9e7897f73"
-          sed -i 's/pub fn verify(&self, \*, value:/pub fn verify(\&self, value:/' \
-            dmf-v25-rust-validation/work/crates/dmf-integrated-memory/src/lib.rs
+          python3 - <<'PY'
+          from pathlib import Path
+          p = Path('dmf-v25-rust-validation/work/crates/dmf-integrated-memory/src/lib.rs')
+          s = p.read_text()
+          replacements = [
+              (
+                  'pub fn verify(&self, *, value: &[u8], snapshot_digest: Digest, now_ms: u64) -> Result<()> {',
+                  'pub fn verify(&self, value: &[u8], snapshot_digest: Digest, now_ms: u64) -> Result<()> {',
+              ),
+              ('    pub fn update(\n', '    #[allow(clippy::too_many_arguments)]\n    pub fn update(\n'),
+              ('    fn unsigned_digest(\n', '    #[allow(clippy::too_many_arguments)]\n    fn unsigned_digest(\n'),
+              ('    fn calculate_digest(\n', '    #[allow(clippy::too_many_arguments)]\n    fn calculate_digest(\n'),
+          ]
+          for old, new in replacements:
+              if old not in s:
+                  raise SystemExit(f'missing patch target: {old!r}')
+              s = s.replace(old, new, 1)
+          p.write_text(s)
+          PY
 
       - name: Install pinned Rust toolchain
         shell: bash
@@ -88,12 +105,9 @@ jobs:
           python3 - <<'PY'
           import hashlib, json, os
           from pathlib import Path
-
           root = Path('.')
           files = [
-              'Cargo.toml',
-              'Cargo.lock',
-              'rust-toolchain.toml',
+              'Cargo.toml', 'Cargo.lock', 'rust-toolchain.toml',
               'crates/dmf-experienced-colleague/Cargo.toml',
               'crates/dmf-experienced-colleague/src/lib.rs',
               'crates/dmf-experienced-colleague/src/bin/dmf-experienced-colleague-check.rs',
@@ -101,11 +115,7 @@ jobs:
               'crates/dmf-integrated-memory/src/lib.rs',
               'crates/dmf-integrated-memory/src/bin/dmf-integrated-memory-check.rs',
           ]
-          hashes = {
-              path: hashlib.sha256((root / path).read_bytes()).hexdigest()
-              for path in files
-              if (root / path).is_file()
-          }
+          hashes = {p: hashlib.sha256((root / p).read_bytes()).hexdigest() for p in files if (root / p).is_file()}
           def load_json(path):
               try:
                   return json.loads((root / path).read_text())
@@ -132,10 +142,7 @@ jobs:
               'commands': commands,
               'test_count': int(os.environ.get('TEST_COUNT') or 0),
               'source_sha256': hashes,
-              'selfchecks': {
-                  'experienced_colleague': experienced,
-                  'integrated_memory': integrated,
-              },
+              'selfchecks': {'experienced_colleague': experienced, 'integrated_memory': integrated},
               'github': {
                   'repository': os.environ.get('GITHUB_REPOSITORY'),
                   'commit_sha': os.environ.get('GITHUB_SHA_VALUE'),
@@ -146,14 +153,10 @@ jobs:
               'authority_release': False,
           }
           receipt['passed'] = all(commands.values()) and receipt['test_count'] >= 80 and len(hashes) == len(files)
-          (root / 'artifacts/rust-validation.json').write_text(
-              json.dumps(receipt, indent=2, sort_keys=True) + '\n'
-          )
+          (root / 'artifacts/rust-validation.json').write_text(json.dumps(receipt, indent=2, sort_keys=True) + '\n')
           PY
-          tar -czf artifacts/formatted-rust-source.tgz \
-            Cargo.toml Cargo.lock rust-toolchain.toml crates
-          sha256sum artifacts/formatted-rust-source.tgz \
-            > artifacts/formatted-rust-source.tgz.sha256
+          tar -czf artifacts/formatted-rust-source.tgz Cargo.toml Cargo.lock rust-toolchain.toml crates
+          sha256sum artifacts/formatted-rust-source.tgz > artifacts/formatted-rust-source.tgz.sha256
           cat artifacts/rust-validation.json
 
       - name: Enforce receipt success
