@@ -50,3 +50,5 @@ jobs:
           path: artifact/
           if-no-files-found: error
           compression-level: 0
+
+# second push ensures the newly added workflow is eligible to run
