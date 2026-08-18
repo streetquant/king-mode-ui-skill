@@ -1,0 +1,52 @@
+name: Fetch Agent Memory Techniques snapshot
+
+on:
+  push:
+    branches:
+      - tmp-fetch-agent-memory-techniques-20260818
+  pull_request:
+    branches:
+      - main
+
+permissions:
+  contents: read
+
+jobs:
+  fetch:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v4
+      - name: Fetch pinned repository snapshot
+        shell: bash
+        run: |
+          set -euo pipefail
+          mkdir -p artifact/extracted
+          url='https://github.com/NirDiamant/Agent_Memory_Techniques/archive/c6e32bad6c6c168ee91f3b2abe54f4038f8d1aef.zip'
+          curl --fail --location --retry 4 --retry-all-errors "$url" -o artifact/Agent_Memory_Techniques-c6e32bad.zip
+          sha256sum artifact/Agent_Memory_Techniques-c6e32bad.zip > artifact/Agent_Memory_Techniques-c6e32bad.zip.sha256
+          unzip -q artifact/Agent_Memory_Techniques-c6e32bad.zip -d artifact/extracted
+          find artifact/extracted -type f -printf '%P\n' | LC_ALL=C sort > artifact/file-list.txt
+          python3 - <<'PY'
+          import json
+          from pathlib import Path
+          root = Path('artifact/extracted')
+          files = sorted(p for p in root.rglob('*') if p.is_file())
+          techniques = sorted({p.parts[2] for p in files if len(p.parts) >= 4 and p.parts[1] == 'all_techniques'})
+          metadata = {
+              'repository': 'NirDiamant/Agent_Memory_Techniques',
+              'commit': 'c6e32bad6c6c168ee91f3b2abe54f4038f8d1aef',
+              'file_count': len(files),
+              'technique_directories': techniques,
+              'technique_count': len(techniques),
+          }
+          Path('artifact/snapshot-metadata.json').write_text(json.dumps(metadata, indent=2, sort_keys=True) + '\n')
+          PY
+          cat artifact/snapshot-metadata.json
+      - name: Upload snapshot
+        uses: actions/upload-artifact@v4
+        with:
+          name: Agent-Memory-Techniques-c6e32bad
+          path: artifact/
+          if-no-files-found: error
+          compression-level: 0
