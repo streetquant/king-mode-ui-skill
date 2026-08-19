@@ -24,12 +24,11 @@ jobs:
             'https://export.arxiv.org/api/query?id_list=2608.07622' -o artifact/arxiv-api.xml
           curl --fail --location --max-time 30 --retry 3 --retry-all-errors -A 'Mozilla/5.0' \
             'https://arxiv.org/abs/2608.07622' -o artifact/arxiv-abs.html
-          curl --fail --location --max-time 30 --retry 2 --retry-all-errors -A 'Mozilla/5.0' \
-            'https://huggingface.co/api/papers/2608.07622' -o artifact/huggingface-paper.json || true
-          sha256sum artifact/* > artifact/SHA256SUMS
+          python3 -m pip install --quiet pypdf
           python3 - <<'PY'
           import json, xml.etree.ElementTree as ET
           from pathlib import Path
+          from pypdf import PdfReader
           out = {'arxiv_id': '2608.07622'}
           root = ET.parse('artifact/arxiv-api.xml').getroot()
           ns = {'a':'http://www.w3.org/2005/Atom', 'arxiv':'http://arxiv.org/schemas/atom'}
@@ -49,11 +48,17 @@ jobs:
                   'journal_ref': text('arxiv:journal_ref'),
                   'doi': text('arxiv:doi'),
               })
+          reader = PdfReader('artifact/2608.07622.pdf')
+          pages = []
+          for i, page in enumerate(reader.pages, 1):
+              pages.append(f'\n\n===== PAGE {i} =====\n\n' + (page.extract_text() or ''))
+          Path('artifact/2608.07622.txt').write_text(''.join(pages), encoding='utf-8')
+          out['page_count'] = len(reader.pages)
+          out['pdf_metadata'] = {str(k): str(v) for k, v in (reader.metadata or {}).items()}
           Path('artifact/metadata.json').write_text(json.dumps(out, indent=2, sort_keys=True) + '\n')
           print(json.dumps(out, indent=2, sort_keys=True))
           PY
-          pdftotext -layout artifact/2608.07622.pdf artifact/2608.07622.txt
-          pdfinfo artifact/2608.07622.pdf > artifact/pdfinfo.txt
+          sha256sum artifact/* > artifact/SHA256SUMS
           wc -c artifact/* > artifact/file-sizes.txt
       - name: Upload paper artifact
         uses: actions/upload-artifact@v4
