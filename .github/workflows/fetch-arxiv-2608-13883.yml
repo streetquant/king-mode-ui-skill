@@ -1,0 +1,64 @@
+name: Fetch arXiv 2608.13883
+
+on:
+  pull_request:
+    branches: [main]
+
+permissions:
+  contents: read
+
+jobs:
+  fetch:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v4
+      - name: Fetch paper and metadata
+        shell: bash
+        run: |
+          set -euo pipefail
+          mkdir -p artifact
+          curl --fail --location --max-time 90 --retry 4 --retry-all-errors -A 'Mozilla/5.0' \
+            'https://arxiv.org/pdf/2608.13883' -o artifact/2608.13883.pdf
+          curl --fail --location --max-time 60 --retry 4 --retry-all-errors -A 'Mozilla/5.0' \
+            'https://export.arxiv.org/api/query?id_list=2608.13883' -o artifact/arxiv-api.xml
+          curl --fail --location --max-time 60 --retry 4 --retry-all-errors -A 'Mozilla/5.0' \
+            'https://arxiv.org/abs/2608.13883' -o artifact/arxiv-abs.html
+          curl --fail --location --max-time 60 --retry 2 --retry-all-errors -A 'Mozilla/5.0' \
+            'https://huggingface.co/api/papers/2608.13883' -o artifact/huggingface-paper.json || true
+          curl --fail --location --max-time 120 --retry 2 --retry-all-errors -A 'Mozilla/5.0' \
+            'https://arxiv.org/e-print/2608.13883' -o artifact/arxiv-source.tar || true
+          python3 - <<'PY'
+          import json, xml.etree.ElementTree as ET
+          from pathlib import Path
+          out = {'arxiv_id': '2608.13883'}
+          root = ET.parse('artifact/arxiv-api.xml').getroot()
+          ns = {'a':'http://www.w3.org/2005/Atom', 'arxiv':'http://arxiv.org/schemas/atom'}
+          entry = root.find('a:entry', ns)
+          if entry is not None:
+              def text(tag):
+                  node = entry.find(tag, ns)
+                  return ' '.join((node.text or '').split()) if node is not None else None
+              out.update({
+                  'title': text('a:title'),
+                  'summary': text('a:summary'),
+                  'published': text('a:published'),
+                  'updated': text('a:updated'),
+                  'authors': [' '.join((n.text or '').split()) for n in entry.findall('a:author/a:name', ns)],
+                  'categories': [n.attrib.get('term') for n in entry.findall('a:category', ns)],
+                  'comment': text('arxiv:comment'),
+                  'journal_ref': text('arxiv:journal_ref'),
+                  'doi': text('arxiv:doi'),
+              })
+          Path('artifact/metadata.json').write_text(json.dumps(out, indent=2, sort_keys=True) + '\n')
+          print(json.dumps(out, indent=2, sort_keys=True))
+          PY
+          sha256sum artifact/* > artifact/SHA256SUMS
+          wc -c artifact/* > artifact/file-sizes.txt
+      - name: Upload paper artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: arxiv-2608-13883
+          path: artifact/
+          if-no-files-found: error
+          compression-level: 0
